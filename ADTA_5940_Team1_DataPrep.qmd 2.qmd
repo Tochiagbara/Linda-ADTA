@@ -723,12 +723,6 @@ ggplot(shootings_df, aes(x = Year, y = Shootings)) +
        y = "Number of Shootings") +
   theme_minimal()
 
-
-
-
-
-
-
 ```
 
 The bar graph depicts the annual number of shootings. The years are represented by the x-axis, and the amount of shootings is represented by the y-axis. The graph depicts the trend and distribution of shootings over time. Based on the highest bar in the graph, we can determine which year had the most shootings. This data can be used to look for patterns, trends, or changes in the frequency of shootings over time.
@@ -761,13 +755,6 @@ ggplot(shootings_df, aes(x = Year, y = Shootings)) +
        x = "Year",
        y = "Number of Shootings") +
   theme_minimal()
-
-
-
-
-
-
-
 
 
 ```
