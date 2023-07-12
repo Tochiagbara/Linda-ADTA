@@ -1,0 +1,813 @@
+---
+title:  "Preparing the TVP Mass Shooter Database"
+author: "Tochi Agbara, Karen Harker, Kevin Brown"
+editor: visual
+---
+
+# Business Problem
+
+We will work with The Violence Project's Mass Shooter Database to better understand the underlying factors, patterns, and consequences associated with public mass shootings. This could aid in the development of preventive strategies, interventions, and support for survivors.  The data will be examined at three levels: the perpetrator, the victims, and the locations or communities.  The desired outcomes will be models of typologies of each of these levels that could be used to generate new research questions, risk assessment models, prevention interventions, and trauma interventions for survivors and witnesses.   
+
+**Methods**
+
+We would typically use machine learning algorithms, such as classification models, or bootstrapping to build more data resample with replacement. These will help to build a predictive model for identifying individuals at risk of perpetrating shooting incidents or being victims, or locations at risk. We could also do a correlation test of mass shooters in Texas to ascertain the gun control level. We are focusing on using unsupervised learning by clustering analysis using age, criminal background, ethnicity, education, etc. to help the policymakers to minimize casualties. Finally, suggestions for future research on the relationship between homicide and the Internet will be considered (Patricia, 2021). 
+
+## Read the data / Import the Data
+
+The Violence Project, a non-profit, nonpartisan research organization dedicated to ... , maintains the Mass Shooter Database (MSDB) (<https://www.theviolenceproject.org/mass-shooter-database/>). The full dataset is available upon request and is provided in an Excel workbook of multiple worksheets, including a codebook or data dictionary. The unit of analysis of the data is the individual mass shooter identified by a case number. There are sheets that contain data about individual victims, the weapons used in each shooting or brought to the scene, about the community at or near the time of the event, and national-level population trend data. The "Full Database" sheet summarizes these data at the shooter level, making it the prime source to use, at least initially.
+
+The Full Database worksheet was extracted from the Excel file and saved as a separate CSV file. There were textual inconsistencies within the database as originally provided, making it difficult to run certain functions. Some modifications were made using Excel, including:
+
+-   Replaced "Case \#" header with "CaseNum" - this makes things easier for matching and referencing the case numbers.
+
+<!-- -->
+
+-   Removed non-standard text from field names, including spaces, dashes, slashes, and parentheses. For some, I replaced with underscores, but not for spaces.
+
+<!-- -->
+
+-   Made the Zipcode field text and added a leading zero to those that needed it (Excel converted these to integers).
+
+<!-- -->
+
+-   Reconciled inconsistent single- and double-quotes in the long-text fields. These were causing the data to be shifted to a new row.
+
+<!-- -->
+
+-   Replaced case \# "145,146" with two rows for each case: 145, 146, duplicating the data. These apparently were one event but two shooters. But there isn't much data about them, so we'll probably drop these cases, anyhow. But at least this way, the file is readable.
+
+To help with the analysis, the field names were modified to include an abbreviation of the category of the variable (based on the codebook) as a prefix. For example, "Age" was changed to "OB_Age", with "OB" abbreviation of "Offender Background" category. Linking these field names to the codebook will also help with identifying factors and other data management tasks. In order to avoid confusion, this version was saved as a separate CSV file, Full_database_VarCatHeaders.csv.
+
+```{r, echo=TRUE}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(corrplot)
+library(lubridate)
+library(tidyr)
+library(tidyverse)
+library(GGally)
+
+Full_Database<-read.csv("Full_database_VarCatHeaders.csv", header=TRUE)
+
+
+Full_Database
+
+```
+
+```         
+```
+
+## Clean the Data
+
+The fields are prefixed by a category label, derived from the codebook:
+
+```{r}
+
+tvp_dd<-read.csv("TVP_DataDictionary.csv")
+str(tvp_dd)
+
+tvp_dd$CAT_ABBREV<-paste(tvp_dd$ABBREV, tvp_dd$CATEGORY, sep="_")
+str(tvp_dd)
+
+tvp_dd %>%
+  group_by(CAT_ABBREV) %>%
+  summarize("Num_Vars"=n())
+
+head(tvp_dd)
+
+```
+
+### Convert Categoricals to Factors
+
+For any machine learning experiment, the categorical variables need to be converted to factors. The variables which be factors have already been identified manually based on the Codebook.
+
+```{r}
+# Which fields in the Full Database are factors?
+dd_factors<-subset(tvp_dd, TYPE=="Factor" & TABLE=="Full")
+#dd_factors
+factors_list<-dd_factors$VARIABLE
+
+Full_Database<-Full_Database %>%
+  mutate_at(factors_list, as.factor)
+
+
+
+
+#str(Full_Database)
+```
+
+### Eliminating Unnecessary Features
+
+For the purposes of our analysis, some of the factors included in the Full_Database are not relevant, including:
+
+-   Shooter first and last names
+
+-   Certain location variables, notably Street Name and Number, City, County, ZipCode, Latitude and Longitude.
+
+```{r}
+Full_Database<- Full_Database %>%
+  mutate(B_ShooterLastName=NULL,
+         B_ShooterFirstName=NULL,
+         D_FullDate=NULL,
+         L_StreetNumber=NULL,
+         L_StreetName=NULL,
+         L_City=NULL,
+         L_County=NULL,
+         L_ZipCode=NULL,
+         L_Latitude=NULL,
+         L_Longitude=NULL)
+
+head(Full_Database)
+```
+
+### Evaluating missing values
+
+Then I'm going to find the features with the fewest missing variables. I'm going to try the *vis_miss()* function of the **visdat** library.
+
+```{r}
+library(visdat)
+Full_Database[] <- lapply(Full_Database, function(x) {
+    is.na(levels(x)) <- levels(x) == "NA"
+    x
+})
+
+vis_miss(Full_Database)
+```
+
+It looks like there are only a few fields for which there are substantially missing data, but it's hard to read the column names. Better to examine the distribution of usage by variable.
+
+```{r}
+
+library(tidyverse)
+# solution found https://stackoverflow.com/questions/44485428/store-output-of-sapply-into-a-data-frame
+
+#count the number missing
+full_db_missing<-data.frame(sapply(Full_Database, function(x) sum(is.na(x))))
+
+#bind to 
+full_db_missing<- cbind(variable = row.names(full_db_missing), full_db_missing)
+
+full_db_missing<-full_db_missing %>% 
+  rename(num_missing=sapply.Full_Database..function.x..sum.is.na.x...)
+full_db_missing<-full_db_missing %>% 
+  mutate(full_db_missing, pct_missing = as.numeric(full_db_missing$num_missing)/ as.numeric(195))
+full_db_missing<-full_db_missing[order(-full_db_missing$num_missing), ]
+full_db_missing
+barplot(t(as.matrix(full_db_missing$pct_missing)), beside=TRUE)
+```
+
+Based on the table of missing data, the fields with significant amounts of missing data include Offender Background, Social Media, and Health/Mental Health of the offender. The missing rate starts at 87% and decreases gradually through 43% over 18 fields, then drops over only about 9 fields to under 5%. A number of variables which could be quite important have missing value rates between 15% and 30%, notably offender's education, their childhood SES category, and their type of employment. While we will not attempt imputation methods at this time, we will, instead, remove all variables from the dataframe with more than 30% missing data.
+
+```{r}
+# NOTE: This method was recommended by ChatGPT
+# Set the threshold for missing data percentage
+threshold <- 0.3  # Remove variables with more than 30% missing data
+
+# Calculate missing data percentage for each variable
+missing_percentage <- colMeans(is.na(Full_Database))
+
+# Identify variables that exceed the threshold
+variables_to_remove <- names(missing_percentage[missing_percentage > threshold])
+
+# Remove identified variables from the dataframe
+Full_Database <- Full_Database[, !(names(Full_Database) %in% variables_to_remove)]
+
+# remove cases with a large rate of missing varialbes
+# Set the threshold for missing variables
+threshold <- 10  # Remove rows with more than 2 missing variables
+
+# Calculate the number of missing variables for each row
+missing_counts <- rowSums(is.na(Full_Database))
+
+# Identify rows that exceed the threshold
+rows_to_remove <- which(missing_counts > threshold)
+
+# Remove identified rows from the dataframe
+Full_Database <- Full_Database[-rows_to_remove, ]
+
+head(Full_Database)
+vis_miss(Full_Database)
+```
+
+There! Much cleaner at 98.7% present.
+
+## Join / Merge the data
+
+We want to join the data on state and year to gain insights into state population and the state firearms laws in a given time period. The population estimates were downloaded from <https://github.com/JoshData/historical-state-population-csv>, which were originally from the U.S. Census. The firearms laws data was extracted from the [State Firearms Law Database](https://www.statefirearmlaws.org/resources), originally created for a research project. The key data point extracted from this set is the total number of *restrictive* firearms laws for the state and effective year of the mass shooting event. The main limitation of this data is that it only covers the period from 1991 through 2021.
+
+Both of these data will be merged with the Full_Dataset based on both State and Year. NOTE: the State Firearms Law Database has already been matched against the state and year prior to being added to this R Project. Hence, this extracted dataset will be matched based on the case number.EDA
+
+```{r}
+historical_state_population_by_year<-read.csv("historical_state_population_by_year.csv", header=TRUE)
+
+# KH: read the State Firearms Law table that provides sums of restrictive gun laws for that state in the year of that event.
+sfl_sum <- read.csv("SFL_Sum_Year_by_MSDB_Case.csv", header=TRUE)
+
+# Merge data and keep all rows from Full_Database
+Full_Database <- Full_Database %>%
+    left_join(historical_state_population_by_year, by=c("L_State" = "PopulationState", "D_Year" = "StatePopulationYear"))
+
+# KH: joined with the SFL dataset, adding SLF_Sum_Year column
+Full_Database <- Full_Database %>%
+   left_join(sfl_sum, by="B_CaseNum")
+
+Full_Database
+```
+
+### New (Derived) Variables
+
+While the frequency and number of total victims (injured and killed) has been shown to have increased over time, it could be useful to also measure the fatality rate of each event. This would be useful for city planners, first responders, and hospital administrators for developing plans to deal with these kinds of events.
+
+```{r}
+Full_Database$V_TotalVictims<- Full_Database$V_NumberKilled+Full_Database$V_NumberInjured
+Full_Database$V_FatalityRate<- Full_Database$V_NumberKilled/Full_Database$V_TotalVictims
+```
+
+### Assign Labels to Factor Levels
+
+These are derived from the Codebook.
+
+```{r}
+# All columns that are not binary
+Full_Database$L_Region<- ordered(Full_Database$L_Region, 
+                                 levels=c(0,1,2,3),
+                                 labels=c("South","Midwest","Northeast","West"))
+Full_Database$L_Urban_Suburban_Rural<- ordered(Full_Database$L_Urban_Suburban_Rural, 
+                                 levels=c(0,1,2),
+                                 labels=c("Urban","Suburban","Rural"))
+
+Full_Database$L_Location<- ordered(Full_Database$L_Location, 
+                                 levels=c(0,1,2,3,4,5,6,7,8,9,10),
+                                 labels=c("K-12 School","College/Univ","Govt Bldg","House of Worship","Retail","Rest/Bar/NC","Office","Residence","Outdoors","Warehouse","Post Office"))
+
+Full_Database$L_SpecifyArmedPerson<- ordered(Full_Database$L_SpecifyArmedPerson, 
+                                 levels=c(0,1,2),
+                                 labels=c("N/A","Law Enforcement","Civilian"))
+Full_Database$OB_Gender<- ordered(Full_Database$OB_Gender, 
+                                 levels=c(0,1,3,4),
+                                 labels=c("Male","Female","Non-Binary","Transgender"))
+Full_Database$OB_Race<- ordered(Full_Database$OB_Race, 
+                                 levels=c(0,1,2,3,4,5),
+                                 labels=c("White","Black","Latinx","Asian","Middle Eastern","Native American"))
+Full_Database$OB_RelationshipStatus<- ordered(Full_Database$OB_RelationshipStatus,
+                                              levels=c(0,1,2,3),
+                                              labels=c("Single","Boy/Girlfriend","Married","Div/Sep/Wid"))
+Full_Database$OB_EmploymentStatus<- ordered(Full_Database$OB_EmploymentStatus,
+                                            levels=c(0,1),
+                                            labels=c("Not working","Working"))
+Full_Database$OB_EmploymentType<- ordered(Full_Database$OB_EmploymentType,
+                                          levels=c(0,1,2),
+                                          labels=c("Blue collar","White collar","In-between"))
+Full_Database$OB_MilitaryService<- ordered(Full_Database$OB_MilitaryService,
+                                           levels=c(0,1,2),
+                                           labels=c("No","Yes","Did not complete training"))
+
+Full_Database$OB_Education<- ordered(Full_Database$OB_Education, 
+                                     levels=c(0,1,2,3,4),
+                                     labels=c("<HS","HS/GED","Some college/trade","UG Degree","Graduate School"))
+
+Full_Database$OB_CommunityInvolvement<- ordered(Full_Database$OB_CommunityInvolvement,
+                                                levels=c(0,1,2,3),
+                                                labels=c("No evidence","Somewhat involved","Heavily involved","Involved until recently"))
+Full_Database$CV_PartICrimes<- ordered(Full_Database$CV_PartICrimes,
+                                       levels=c(0,1,2,3,4,5,6,7,8),
+                                       labels=c("No evidence","Homicide","Forcible Rape","Robbery","Aggravated Assault","Burglary","Larceny/Theft","Motor Vehicle Theft","Arson"))
+Full_Database$CV_PartIICrimes<- ordered(Full_Database$CV_PartIICrimes,
+                                        levels=c(0,1,2,3,4,5,6,7,8,9),
+                                        labels=c("No evidence","Simple Assault","Fraud/Forgery","Stolen Property","Vandalism","Weapons Offences","Prostitution","Drugs","DUI","Other"))
+Full_Database$CV_HighestLevelofJusticeSystemInvolvement<-ordered(Full_Database$CV_HighestLevelofJusticeSystemInvolvement,
+                                                                 levels=c(0,1,2,3,4),
+                                                                 labels=c("N/A","Suspected","Arrested","Charged","Convicted"))
+Full_Database$CV_HistoryofDomesticAbuse<-ordered(Full_Database$CV_HistoryofDomesticAbuse,
+                                                 levels=c(0,1,2),
+                                                 labels=c("No evidence","Abused romantic partner","Abused other family member"))
+Full_Database$CV_HistoryofPhysicalAltercations<- ordered(Full_Database$CV_HistoryofPhysicalAltercations,
+                                                         levels=c(0,1,2),
+                                                         labels=c("No evidence","Yes","Attacked inanimate object"))
+Full_Database$CV_DomesticAbuseSpecified<-ordered(Full_Database$CV_DomesticAbuseSpecified,
+                                                 levels=c(0,1,2,3,4),
+                                                 labels=c("N/A","Physical violence, non-sexual","Sexual","Threats/coersion","Threats with deadly weapon"))
+Full_Database$CV_KnownHateGrouporChatRoomAffiliation<- ordered(Full_Database$CV_KnownHateGrouporChatRoomAffiliation,
+                                           levels=c(0,1,2,3,4),
+                                           labels=c("No evidence","Hate group community association","Other radical group association","Inspired but not connected","Website/chat room postings"))
+Full_Database$TACE_ChildhoodSES<- ordered(Full_Database$TACE_ChildhoodSES,
+                                          levels=c(0,1,2),
+                                          labels=c("Lower","Middle","Upper"))
+Full_Database$TACE_AdultTrauma<- ordered(Full_Database$TACE_AdultTrauma,
+                                         levels=c(0,1,2,3,4,5,6),
+                                         labels=c("No evidence","Death of parent","Death or loss of child","Death of other family member","War trauma","Traumatic accident","Other trauma"))
+Full_Database$SC_RecentorOngoingStressor<- ordered(Full_Database$SC_RecentorOngoingStressor,
+                                                   levels=c(0,1,2,3,4,5,6),
+                                                   labels=c("No evidence","Recent break-up","Employment stressor","Economic stressor","Family issue","Legal Issue","Other"))
+
+Full_Database$W_FirearmProficiency<-ordered(Full_Database$W_FirearmProficiency,
+                                          levels=c(0,1,2,3),
+                                          labels=c("No evidence","Some experience","More experienced","Very experienced"))
+
+Full_Database$HMH_Suicidality<- ordered(Full_Database$HMH_Suicidality,
+                                        levels=c(0,1,2),
+                                        labels=c("No evidence","Yes","Not prior to event, but intended to die"))
+
+Full_Database$HMH_VoluntaryorInvoluntaryHospitalization<- ordered(Full_Database$HMH_VoluntaryorInvoluntaryHospitalization,
+                                                                  levels=c(0,1,2),
+                                                                  labels=c("No evidence","Voluntary","Involuntary"))
+Full_Database$HMH_MentalIllness<- ordered(Full_Database$HMH_MentalIllness,
+                                          levels=c(0,1,2,3,4),
+                                          labels=c("No evidence","Mood disorder","Thought disorder","Other disorder","Apparent but not diagnosed"))
+Full_Database$HMH_KnownFamilyMentalHealthHistory<- ordered(Full_Database$HMH_KnownFamilyMentalHealthHistory,
+                                                           levels=c(0,1,2),
+                                                           labels=c("No evidence","Parent(s)","Other family member(s)"))
+Full_Database$HMH_SubstanceUse<- ordered(Full_Database$HMH_SubstanceUse,
+                                         levels=c(0,1,2,3),
+                                         labels=c("No evidence","Alcohol abuse","Marijuana use","Other"))
+
+
+Full_Database$GM_KnownPrejudices<-ordered(Full_Database$GM_KnownPrejudices,
+                                          levels=c(0,1,2,3,4),
+                                          labels=c("No evidence","Racism","Misogyny","Homophobia","Religious Hatred"))
+Full_Database$GM_Motive_Racism_Xenophobia<-ordered(Full_Database$GM_Motive_Racism_Xenophobia,
+                                          levels=c(0,1,2),
+                                          labels=c("No evidence","Targeting people of color","Targeting white people"))
+Full_Database$GM_Motive_ReligiousHate<-ordered(Full_Database$GM_Motive_ReligiousHate,
+                                          levels=c(0,1,2,3,4),
+                                          labels=c("No evidence","Antisemitism","Islamaphobia","Angry with Christianity/God","Both Antisemitism and Islamaphobia"))
+Full_Database$GM_Motive_Other<- ordered(Full_Database$GM_Motive_Other,
+                                      levels=c(0,1,2),
+                                      labels=c("No evidence","Yes","Generalized anger"))
+Full_Database$GM_RoleofPsychosisintheShooting<- ordered(Full_Database$GM_RoleofPsychosisintheShooting,
+                                      levels=c(0,1,2,3),
+                                      labels=c("No evidence","Minor","Moderate","Major"))
+
+
+
+Full_Database$GM_Motive_Other<- ordered(Full_Database$GM_Motive_Other,
+                                      levels=c(0,1,2),
+                                      labels=c("No evidence","Yes","Generalized anger"))
+Full_Database$RC_WhoKilledShooterOnScene<- ordered(Full_Database$RC_WhoKilledShooterOnScene,
+                                      levels=c(0,1,2,3,4),
+                                      labels=c("Alive","Killed self","Killed by police","Killed by school resource officer","Killed by armed civilian"))
+                                          
+Full_Database$SOC_SocialMediaUse<- ordered(Full_Database$SOC_SocialMediaUse,
+                                           levels=c(0,1,2),
+                                           labels=c("No evidence","Yes","N/A (pre-1999"))
+Full_Database$SOC_PopCultureConnection<- ordered(Full_Database$SOC_PopCultureConnection,
+                                                 levels=c(0,1,2),
+                                                 labels=c("No evidence","Explicit reference","Tangential reference"))
+Full_Database$RC_AttempttoFlee<- ordered(Full_Database$RC_AttempttoFlee,
+                                         levels=c(0,1,2),
+                                         labels=c("No attempt","Tried to escape","Escaped then killed self"))
+Full_Database$RC_InsanityDefense<- ordered(Full_Database$RC_InsanityDefense,
+                                           levels=c(0,1,2,3),
+                                           labels=c("No","Yes","N/A","Trial pending"))
+Full_Database$RC_CriminalSentence<- ordered(Full_Database$RC_CriminalSentence,
+                                            level=c(0,1,2,3,4,5),
+                                            labels=c("N/A","Death penalty","Life without parole","Life imprisonment","Hospitalization","Juvenile detention"))
+
+head(Full_Database)
+```
+
+## EDA of Location Data
+
+The exploratory data analyses we will conduct will be primarily for targeting the features to include in our model. First we need to establish the distribution of each of the columns. For this, we used the library, [DataExplorer](https://cran.r-project.org/web/packages/DataExplorer/index.html) and [GGally](https://cran.r-project.org/web/packages/GGally/index.html). The introduce() function shows the distribution of discrete vs. continuous data, as well as how complete our data is. The results show that nearly 85% of our columns are categorical and that there are few missing data now.
+
+```{r}
+library(DataExplorer)
+library(GGally)
+
+introduce(Full_Database)
+plot_intro(Full_Database)
+```
+
+### Continuous Data
+
+Since there are only 15% of columns which are continuous, let's look at these first and get them out of the way. So, which are the interval fields?
+
+```{r}
+matchingfields<-sapply(Full_Database, function(x) is(x, "numeric"))
+matchingfieldsnames<-names(Full_Database)[matchingfields]
+print(matchingfieldsnames)
+```
+
+So, D_Year could be analyzed as continuous or categorical; OB_Age and StatePopulationNumber should be analyzed as numeric. Then we'll look at descriptive data and then at the histograms of the distributions. We'll use Basic R's summary() function for the former, and DataExplorer's plot_histogram() for the latter. The latitudes and longitudes should remain continuous, but we don't need to analyze these as such.
+
+```{r}
+Full_Database$B_CaseNum<-as.factor(Full_Database$B_CaseNum) 
+
+summary(Filter(is.numeric, Full_Database))
+
+plot_histogram(Full_Database)
+```
+
+The target variables (V_NumberKilled and V_NumberInjured) and key indicators, D_Year, OB_Age, and StatePopulationNumber, are all heavily skewed (right, left, and then right again). This means that most mass shootings have fewer than 8 killed and 7 injured, frequency of events appears to have increased over time, that more mass shooters appear to be younger than older, and more mass shooting events appear to occur in states with smaller populations than in larger. This latter observation may be worth pursuing. The Las Vegas shooting of 2017 is a prominent outlier with 60 killed and 867 injured. These continuous variables should be standardized on the *z*-scale.
+
+A few variables should be categorized, notably OB_Children and OB_NumberofSiblings, SC_SignsofBeinginCrisis, and W_TotalFirearmsBroughttotheScene.
+
+```{r}
+
+Full_Database<- Full_Database %>%
+  mutate(., V_NumberKilled_Scaled=scale(V_NumberKilled),
+         V_NumberInjured_Scaled=scale(V_NumberInjured),
+         StatePopulationNumber_Scaled=scale(StatePopulationNumber),
+         SFL_Sum_Year_Scaled=scale(SFL_Sum_Year),
+         V_TotalVictims_Scaled=scale(V_TotalVictims),
+         V_FatalityRate_Scaled=scale(V_FatalityRate)
+         )
+scaled_data<-grep("Scaled", names(Full_Database), value=TRUE)
+summary(Filter(is.numeric, Full_Database))
+
+
+```
+
+Let's see how we can categorize these variables by looking at their distribution by percentile.
+
+### Categorical Data
+
+Now, let's examine the categorical data using DataExplorer's plot_barchart(). I'll analyze these by category, which, using the variable-naming structure, is fairly easy to do.
+
+```{r}
+library(dplyr)
+library(ggplot2)
+is.fact<-sapply(Full_Database, is.factor)
+Full_Database_factors<-Full_Database[, is.fact]
+ob_df<- Full_Database_factors %>%
+  select(starts_with("OB_") | starts_with("SOC_") | starts_with("HMH_") | starts_with("CV_"))
+gm_df<- Full_Database_factors %>%
+  select(starts_with("GM_"))
+loc_df<- Full_Database_factors %>%
+  select(starts_with("L_") | starts_with("SFL_") | starts_with("RC_"))
+
+fw_df<- Full_Database_factors %>%
+  select(starts_with("F_") | starts_with("W_"))
+plot_bar(ob_df)
+plot_bar(gm_df)
+plot_bar(loc_df)
+plot_bar(fw_df)
+
+
+```
+
+To make cluster analyses work well, we will need to reduce the number of levels, as well as the number of features. Towards that end, it seems that these adjustments make the most sense:
+
+-   We'll ignore gender - it is too dominated by males to take females or non-binary into consideration.
+
+-   While I'm reluctant to make race binary, given the predominance of White offenders, it makes sense to use White and Non-White. We may want segment out Black and Latinx, leaving an Other category.
+
+-   At first glance, there doesn't seem to be enough of those with prior hospitalization (psychiatric, that is), but before I shed this feature, I want to see if there is a correlation with other variables.
+
+-   Make all of the GM variables (Grievance and Motivation) binary.
+
+-   The Location variable (that is, the type of location) needs to be reduced, but I'm not sure how to combine the categories. Here's one option which reduces 10 categories to 5:
+
+    -   Education (School and College/University)
+
+    -   Public Non-Govt (Retail and Rest/Bar/NC and Outdoors and House of Worship)
+
+    -   Govt (Govt and Post Office)
+
+    -   Workplace (Office and Warehouse)
+
+    -   Residence
+
+-   The Metro_MicroStatisticalArea doesn't have enough variety to warrant inclusion.
+
+-   While there aren't very many with armed personnel on scene, there is enough to warrant inclusion, especially when combined with shooter outcome.
+
+So, let's make these changes.
+
+```{r}
+Full_Database<- Full_Database %>%
+  
+# make 2 new variables for race - one binary and one with 4 categories 
+  mutate(OB_White=case_when(OB_Race==1 ~ "White",
+                                  TRUE ~ "Non-White"), 
+         OB_Race_multi=case_when(OB_Race==0 ~ "White",
+                                  OB_Race==1 ~ "Black",
+                                  OB_Race==2 ~ "Latinx",
+                                  TRUE ~ "Other"),
+# make new binary variables for GM_KnownPrejudices and GM_Motive_ReligousHate   
+        GM_Prejudiced=case_when(GM_KnownPrejudices==0 ~ 0,
+                                TRUE ~ 1),
+        GM_Motive_ReligiousHate_Binary=case_when(GM_Motive_ReligiousHate==0 ~ 0,
+                                                 TRUE ~ 1),
+
+# make new L_Location variable that has only 5 categories   
+        L_Location_Multi=case_when(L_Location<2 ~ "School/College",
+                                   (L_Location==2 | L_Location==10) ~ "Govt/PO",
+                                   (L_Location==3 | L_Location==4 | L_Location==5 | L_Location==8) ~ "Public Non-Govt",
+                                   (L_Location==6 | L_Location==9) ~ "Workplace",
+                                   TRUE ~ "Residence"
+        ),
+# remove the fields from which these were derived
+      OB_Race=NULL,
+      GM_KnownPrejudices=NULL,
+      GM_Motive_ReligiousHate=NULL,
+      L_Location=NULL,
+                                   
+# remove OB_Gender and L_Metro_MicroStatisticalArea
+      OB_Gender=NULL,
+        L_Metro_MicroStatisticalAreaType=NULL
+      
+  )
+head(Full_Database)
+# remove other fields not necessary for analysis, like names and case numbers and addresses
+Full_Database<- Full_Database %>%
+  mutate(B_CaseNum=NULL,
+         B_ShooterLastName=NULL,
+         B_ShooterFirstName=NULL,
+         D_FullDate=NULL,
+         L_StreetNumber=NULL,
+         L_StreetName=NULL,
+         L_City=NULL,
+         L_County=NULL,
+         L_ZipCode=NULL,
+         L_Latitude=NULL,
+         L_Longitude=NULL,
+         L_StateCode=NULL
+         )
+head(Full_Database)
+```
+
+### 
+
+#### Date Data
+
+Visualizations of date data works better if shown in date or time order. Doing so requires modifications to the data so that the order of the factors is retained. To do this, we convert the Day of Week and the Day of Month and the Month variables into two-digit characters with leading zeros in order to force alphabetical ordering. Then we display bar charts of these derived columns.\
+
+```{r}
+
+# put the date fields in time-order
+Full_Database$D_DayofWeek<-factor(Full_Database$D_DayofWeek, 
+                                levels=c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"))
+
+Full_Database<-Full_Database %>% 
+  mutate(D_DOW_Num= 
+         case_when(D_DayofWeek=="Monday" ~ "1",
+            D_DayofWeek=="Tuesday" ~ "2",
+            D_DayofWeek=="Wednesday" ~"3",
+            D_DayofWeek=="Thursday" ~"4",
+            D_DayofWeek=="Friday" ~"5",
+            D_DayofWeek=="Saturday" ~ "6",
+            D_DayofWeek=="Sunday" ~"7"))
+
+Full_Database$D_DOW_Num<-factor(Full_Database$D_DOW_Num, labels(c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")))
+Full_Database_factors$D_DOW_Num<-as.factor(Full_Database$D_DOW_Num)
+Full_Database<- Full_Database %>%
+  mutate(D_DOM_Num=
+           case_when(nchar(as.character(D_Day))<2 ~ paste("0",D_Day, sep=""),
+                     TRUE ~ D_Day)
+  )
+Full_Database_factors$D_DOM_Num<-as.factor(Full_Database$D_DOM_Num)
+
+date_df<- Full_Database_factors %>%
+  select(starts_with("D_"))
+
+#using ggplot for the date fields because order of values is important
+ggplot(date_df, aes(x=D_DOW_Num, label=D_DOW_Num))+
+  geom_bar()
+ggplot(date_df, aes(x=D_DOM_Num, label=D_DOM_Num))+
+  geom_bar()
+ggplot(date_df, aes(x=D_Month, label=D_Month))+
+  geom_bar()
+```
+
+The trend by day of the week appears more skewed to the early part of the week, so perhaps making this binary would be useful. The distribution by day of the month appears multi-modal, with a curve starting at the beginning of the month and skewing right, followed by another right-skewed curve starting on the 14th (the mode of the entire set). Again, making this binary could be more useful as a feature than 31 individual factors. As far as the months of the year go, March is a key month, and there is an upward trend from September though December. Summer months are surprisingly stable and moderate.
+
+Based on previous literature, there is an association between location type (notably schools and workplaces) and months and days of week (Schildkraut, et al. 2022). I think making Months binary into school year and not school year (Oct-Mar, Apr-Sep) would be useful.
+
+```{r}
+Full_Database <- Full_Database %>%
+  mutate(
+    D_EarlyWeek=case_when(as.integer(D_DOW_Num) < 4 ~ 1,
+            TRUE ~ 0), 
+        D_SchoolYear= case_when(
+          (as.integer(D_Month)>9 | as.integer(D_Month)<4) ~ 1,
+            TRUE ~ 0),
+          D_EarlyMonth=case_when(
+            as.integer(D_DOM_Num)<14 ~ 1,
+            TRUE ~ 0),
+    #remove other date fields from analysis
+    D_DayofWeek=NULL,
+    D_Day=NULL,
+    D_Month=NULL,
+    D_DOW_Num=NULL,
+    D_DOM_Num=NULL
+  )
+date_df$D_EarlyWeek<-Full_Database$D_EarlyWeek
+date_df$D_SchoolYear<-Full_Database$D_SchoolYear
+date_df$D_EarlyMonth<-Full_Database$D_EarlyMonth
+head(date_df)
+head(Full_Database)
+```
+
+### Summarize victim data
+
+```{r}
+
+```
+
+"To perform the data analysis and calculate the summarized statistics using R, you can use the following code:
+
+```{}
+```
+
+```{r}
+
+victims <- read.csv("victims.csv")
+colnames(victims)[colnames(victims) == "Case.."] <- "B_CaseNum"
+victims$B_CaseNum <- as.integer(victims$B_CaseNum)
+
+summary_victims <- victims %>%
+  group_by(B_CaseNum) %>%
+  summarise(avgAge = mean(Age),
+            avgYrsLost = mean(Years.Lost))
+
+summary_victims
+```
+
+```{r}
+victims <- read.csv("victims.csv")
+colnames(victims)[colnames(victims) == "Case.."] <- "B_CaseNum"
+victims$B_CaseNum <- as.integer(victims$B_CaseNum)
+
+summary_victims <- victims %>%
+  group_by(B_CaseNum) %>%
+  summarise(avgAge = mean(Age),
+            avgYrsLost = mean(Years.Lost),
+            maxAge = max(Age))
+            
+
+summary_victims
+```
+
+```{r}
+victims <- read.csv("victims.csv")
+colnames(victims)[colnames(victims) == "Case.."] <- "B_CaseNum"
+victims$B_CaseNum <- as.integer(victims$B_CaseNum)
+
+summary_victims <- victims %>%
+  group_by(B_CaseNum) %>%
+  summarise(avgAge = mean(Age),
+            minAge = min(Age),
+            avgYrsLost = mean(Years.Lost),
+            whitePercentage = sum(Race == "White") / n() * 100)
+
+summary_victims
+```
+
+```{r}
+victims <- read.csv("victims.csv")
+colnames(victims)[colnames(victims) == "Case.."] <- "B_CaseNum"
+victims$B_CaseNum <- as.integer(victims$B_CaseNum)
+
+summary_victims <- victims %>%
+  group_by(B_CaseNum) %>%
+  summarise(avgAge = mean(Age),
+            minAge = min(Age),
+            avgYrsLost = mean(Years.Lost),
+            whitePercentage = sum(Race == "White") / n() * 100,
+            blackPercentage = sum(Race == "Black") / n() * 100)
+
+summary_victims
+```
+
+```{r}
+
+```
+
+```{r}
+library(ggplot2)
+
+# Remove non-finite values
+summary_victims <- summary_victims[is.finite(summary_victims$avgAge), ]
+
+# Plot histogram
+ggplot(summary_victims, aes(x = avgAge)) +
+  geom_histogram(binwidth = 5, fill = "red", color = "white") +
+  labs(title = "Average Age Distribution",
+       x = "Average Age",
+       y = "Count") +
+  theme_minimal()
+```
+
+This code counts the number of shootings in the "Year" column of the "victims" data frame for each year. It then generates a data frame with two columns: "Year" and "Shootings". The data frame is sorted descendingly by the number of shootings. Finally, ggplot2 is used to create a bar graph representing the number of shootings by year. This graph compares the number of shootings in different years, allowing you to determine which year had the highest frequency of shootings**.**
+
+```{r}
+filtered_victims <- victims %>%
+  filter(!is.na(B_CaseNum))
+
+# Convert "B_CaseNum" column to numeric
+filtered_victims$B_CaseNum <- as.integer(filtered_victims$B_CaseNum)
+
+# Count the number of shootings by year
+shootings_by_year <- table(filtered_victims$B_CaseNum)
+
+# Convert the table to a data frame
+shootings_df <- data.frame(Year = as.integer(names(shootings_by_year)),
+                           Shootings = as.integer(shootings_by_year))
+
+# Sort the data frame by shootings in descending order
+shootings_df <- shootings_df[order(shootings_df$Shootings, decreasing = TRUE), ]
+
+# Plot the bar graph
+ggplot(shootings_df, aes(x = Year, y = Shootings)) +
+  geom_bar(stat = "identity", fill = "blue", na.rm = TRUE) +
+  labs(title = "Number of Shootings by Year",
+       x = "Year",
+       y = "Number of Shootings") +
+  theme_minimal()
+
+
+
+
+
+
+
+```
+
+The bar graph depicts the annual number of shootings. The years are represented by the x-axis, and the amount of shootings is represented by the y-axis. The graph depicts the trend and distribution of shootings over time. Based on the highest bar in the graph, we can determine which year had the most shootings. This data can be used to look for patterns, trends, or changes in the frequency of shootings over time.
+
+To analyze the patterns and changes in the occurrence of shootings over time, you can use the following code:
+
+```{r}
+# Filter out rows with missing values in the B_CaseNum column
+filtered_victims <- victims %>%
+  filter(!is.na(B_CaseNum))
+
+# Convert "B_CaseNum" column to numeric
+filtered_victims$B_CaseNum <- as.integer(filtered_victims$B_CaseNum)
+
+# Count the number of shootings by year
+shootings_by_year <- table(filtered_victims$B_CaseNum)
+
+# Convert the table to a data frame
+shootings_df <- data.frame(Year = as.integer(names(shootings_by_year)),
+                           Shootings = as.integer(shootings_by_year))
+
+# Sort the data frame by year in ascending order
+shootings_df <- shootings_df[order(shootings_df$Year), ]
+
+# Plot the line graph
+ggplot(shootings_df, aes(x = Year, y = Shootings)) +
+  geom_line(color = "red") +
+  geom_point(color = "red", size = 3) +
+  labs(title = "Shootings Over Time",
+       x = "Year",
+       y = "Number of Shootings") +
+  theme_minimal()
+
+
+
+
+
+
+
+
+
+```
+
+**Correlation Analysis**
+
+Count the number of shootings by year, convert the result to a data frame, sort the data frame by year, and finally plot a line graph illustrating the trend of shootings over time.
+
+```{r}
+cor_data <- filtered_victims[c("Age", "Years.Lost")]
+
+# Convert the columns to numeric data type
+cor_data$Age <- as.numeric(as.character(cor_data$Age))
+cor_data$Years.Lost <- as.numeric(as.character(cor_data$Years.Lost))
+
+# Calculate the correlation coefficient
+correlation <- cor(cor_data, use = "complete.obs")
+
+# Print the correlation coefficient
+print(correlation)
+```
+
+This means that some values in the columns "Age" and "Years.Lost" were not numeric or could not be converted to a numeric format. The correlation coefficient quantifies the strength and direction of a two-variable linear relationship. The correlation coefficient between "Age" and "Years. Lost" is -0.9473838. A correlation coefficient of -0.9473838 indicates that the two variables have a strong negative linear relationship. As the victims' ages increase, the number of years lost decreases, and vice versa. The stronger the linear relationship, the closer the correlation coefficient is to -1 or 1.
+
+```{r}
+
+```
+
+## Data Modeling
+
+```{r}
+
+```
+
+## Cluster Analysis
+
+```{r}
+
+```
+
+## Boot strapping
+
+```{r}
+
+```
+
+## Data Reporting & Communication Results
+
+## 
