@@ -1,0 +1,185 @@
+### Summarize victim data
+
+```{r}
+
+```
+
+"To perform the data analysis and calculate the summarized statistics using R, you can use the following code:
+
+```{}
+```
+
+```{r}
+
+victims <- read.csv("victims.csv")
+colnames(victims)[colnames(victims) == "Case.."] <- "B_CaseNum"
+victims$B_CaseNum <- as.integer(victims$B_CaseNum)
+
+summary_victims <- victims %>%
+  group_by(B_CaseNum) %>%
+  summarise(avgAge = mean(Age),
+            avgYrsLost = mean(Years.Lost))
+
+summary_victims
+```
+
+```{r}
+victims <- read.csv("victims.csv")
+colnames(victims)[colnames(victims) == "Case.."] <- "B_CaseNum"
+victims$B_CaseNum <- as.integer(victims$B_CaseNum)
+
+summary_victims <- victims %>%
+  group_by(B_CaseNum) %>%
+  summarise(avgAge = mean(Age),
+            avgYrsLost = mean(Years.Lost),
+            maxAge = max(Age))
+            
+
+summary_victims
+```
+
+```{r}
+victims <- read.csv("victims.csv")
+colnames(victims)[colnames(victims) == "Case.."] <- "B_CaseNum"
+victims$B_CaseNum <- as.integer(victims$B_CaseNum)
+
+summary_victims <- victims %>%
+  group_by(B_CaseNum) %>%
+  summarise(avgAge = mean(Age),
+            minAge = min(Age),
+            avgYrsLost = mean(Years.Lost),
+            whitePercentage = sum(Race == "White") / n() * 100)
+
+summary_victims
+```
+
+```{r}
+victims <- read.csv("victims.csv")
+colnames(victims)[colnames(victims) == "Case.."] <- "B_CaseNum"
+victims$B_CaseNum <- as.integer(victims$B_CaseNum)
+
+summary_victims <- victims %>%
+  group_by(B_CaseNum) %>%
+  summarise(avgAge = mean(Age),
+            minAge = min(Age),
+            avgYrsLost = mean(Years.Lost),
+            whitePercentage = sum(Race == "White") / n() * 100,
+            blackPercentage = sum(Race == "Black") / n() * 100)
+
+summary_victims
+```
+
+```{r}
+
+```
+
+```{r}
+library(ggplot2)
+
+# Remove non-finite values
+summary_victims <- summary_victims[is.finite(summary_victims$avgAge), ]
+
+# Plot histogram
+ggplot(summary_victims, aes(x = avgAge)) +
+  geom_histogram(binwidth = 5, fill = "red", color = "white") +
+  labs(title = "Average Age Distribution",
+       x = "Average Age",
+       y = "Count") +
+  theme_minimal()
+```
+
+This code counts the number of shootings in the "Year" column of the "victims" data frame for each year. It then generates a data frame with two columns: "Year" and "Shootings". The data frame is sorted descendingly by the number of shootings. Finally, ggplot2 is used to create a bar graph representing the number of shootings by year. This graph compares the number of shootings in different years, allowing you to determine which year had the highest frequency of shootings**.**
+
+```{r}
+filtered_victims <- victims %>%
+  filter(!is.na(B_CaseNum))
+
+# Convert "B_CaseNum" column to numeric
+filtered_victims$B_CaseNum <- as.integer(filtered_victims$B_CaseNum)
+
+# Count the number of shootings by year
+shootings_by_year <- table(filtered_victims$B_CaseNum)
+
+# Convert the table to a data frame
+shootings_df <- data.frame(Year = as.integer(names(shootings_by_year)),
+                           Shootings = as.integer(shootings_by_year))
+
+# Sort the data frame by shootings in descending order
+shootings_df <- shootings_df[order(shootings_df$Shootings, decreasing = TRUE), ]
+
+# Plot the bar graph
+ggplot(shootings_df, aes(x = Year, y = Shootings)) +
+  geom_bar(stat = "identity", fill = "blue", na.rm = TRUE) +
+  labs(title = "Number of Shootings by Year",
+       x = "Year",
+       y = "Number of Shootings") +
+  theme_minimal()
+
+
+
+
+
+
+
+```
+
+The bar graph depicts the annual number of shootings. The years are represented by the x-axis, and the amount of shootings is represented by the y-axis. The graph depicts the trend and distribution of shootings over time. Based on the highest bar in the graph, we can determine which year had the most shootings. This data can be used to look for patterns, trends, or changes in the frequency of shootings over time.
+
+To analyze the patterns and changes in the occurrence of shootings over time, you can use the following code:
+
+```{r}
+# Filter out rows with missing values in the B_CaseNum column
+filtered_victims <- victims %>%
+  filter(!is.na(B_CaseNum))
+
+# Convert "B_CaseNum" column to numeric
+filtered_victims$B_CaseNum <- as.integer(filtered_victims$B_CaseNum)
+
+# Count the number of shootings by year
+shootings_by_year <- table(filtered_victims$B_CaseNum)
+
+# Convert the table to a data frame
+shootings_df <- data.frame(Year = as.integer(names(shootings_by_year)),
+                           Shootings = as.integer(shootings_by_year))
+
+# Sort the data frame by year in ascending order
+shootings_df <- shootings_df[order(shootings_df$Year), ]
+
+# Plot the line graph
+ggplot(shootings_df, aes(x = Year, y = Shootings)) +
+  geom_line(color = "red") +
+  geom_point(color = "red", size = 3) +
+  labs(title = "Shootings Over Time",
+       x = "Year",
+       y = "Number of Shootings") +
+  theme_minimal()
+
+
+
+
+
+
+
+
+
+```
+
+**Correlation Analysis**
+
+Count the number of shootings by year, convert the result to a data frame, sort the data frame by year, and finally plot a line graph illustrating the trend of shootings over time.
+
+```{r}
+cor_data <- filtered_victims[c("Age", "Years.Lost")]
+
+# Convert the columns to numeric data type
+cor_data$Age <- as.numeric(as.character(cor_data$Age))
+cor_data$Years.Lost <- as.numeric(as.character(cor_data$Years.Lost))
+
+# Calculate the correlation coefficient
+correlation <- cor(cor_data, use = "complete.obs")
+
+# Print the correlation coefficient
+print(correlation)
+```
+
+This means that some values in the columns "Age" and "Years.Lost" were not numeric or could not be converted to a numeric format. The correlation coefficient quantifies the strength and direction of a two-variable linear relationship. The correlation coefficient between "Age" and "Years. Lost" is -0.9473838. A correlation coefficient of -0.9473838 indicates that the two variables have a strong negative linear relationship. As the victims' ages increase, the number of years lost decreases, and vice versa. The stronger the linear relationship, the closer the correlation coefficient is to -1 or 1.
